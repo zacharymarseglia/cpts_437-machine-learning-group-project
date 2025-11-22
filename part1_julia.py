@@ -1,0 +1,491 @@
+"""
+Tacoma Crash Prediction - Data Cleaning Pipeline
+- Loads 5 WSDOT crash CSVs
+- Loads NOAA weather CSV
+- Cleans and engineers features
+- Merges crash & weather on date
+- Produces cleaned CSV
+
+Author: Julia Seregin
+"""
+
+import os
+from datetime import datetime
+from typing import List, Tuple, Optional
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+## Utilities / Small helpers ##
+
+def safe_read_csv(path: str, **kwargs) -> pd.DataFrame:
+    """Read CSV with a friendly error message."""
+    try:
+        return pd.read_csv(path, **kwargs)
+    except Exception as e:
+        raise IOError(f"Error reading '{path}': {e}")
+
+
+def detect_datetime_column(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Try to detect a combined datetime column, or separate Date and Time columns.
+    Returns (datetime_col_name, combined_flag_column_name).
+    - If datetime_col_name is not None -> column name to parse.
+    - If datetime_col_name is None, but combined_flag_column_name == 'DateTime' -> we created a combined column.
+    Otherwise both None => not found.
+    """
+    # Candidate patterns for combined columns
+    combined_candidates = [
+        "date time", "datetime", "crash_datetime", "crash date time", "crashtimestamp", "timestamp", "crash_timestamp"
+    ]
+
+    for col in df.columns:
+        lower = col.lower().replace("_", " ").replace(".", " ")
+        for cand in combined_candidates:
+            if cand in lower or (("date" in lower and "time" in lower) or ("time" in lower and "date" in lower)):
+                return col, None
+
+    # Try exact common names
+    exact_combined = ["DateTime", "Date Time", "Date_Time", "CRASH_DATETIME", "CRASH_TIME_STAMP", "TIMESTAMP"]
+    for name in exact_combined:
+        if name in df.columns:
+            return name, None
+
+    # Check if separate 'Date' and 'Time' variants exist
+    date_cols = [c for c in df.columns if c.lower().strip() in ("date", "crash date", "crash_date", "report_date")]
+    time_cols = [c for c in df.columns if c.lower().strip() in ("time", "crash time", "crash_time", "report_time")]
+    if date_cols and time_cols:
+        # choose first match
+        date_col = date_cols[0]
+        time_col = time_cols[0]
+        combined_name = "DateTime"
+        df[combined_name] = df[date_col].astype(str).str.strip() + " " + df[time_col].astype(str).str.strip()
+        return combined_name, combined_name
+
+    # Try heuristic: separate columns with 'date' in name and 'time' in name
+    date_candidates = [c for c in df.columns if "date" in c.lower()]
+    time_candidates = [c for c in df.columns if "time" in c.lower()]
+    if date_candidates and time_candidates:
+        combined_name = "DateTime"
+        df[combined_name] = df[date_candidates[0]].astype(str).str.strip() + " " + df[time_candidates[0]].astype(str).str.strip()
+        return combined_name, combined_name
+
+    return None, None
+
+
+def categorize_time_of_day(hour: Optional[int]) -> str:
+    if pd.isna(hour):
+        return "unknown"
+    try:
+        hour = int(hour)
+    except Exception:
+        return "unknown"
+    if 6 <= hour < 10:
+        return "morning_rush"
+    if 10 <= hour < 16:
+        return "midday"
+    if 16 <= hour < 20:
+        return "evening_rush"
+    if 20 <= hour < 24:
+        return "night"
+    return "late_night"
+
+
+## Loading functions ##
+
+def load_wsdot_files(file_list: List[str]) -> Tuple[pd.DataFrame, List[dict]]:
+    """Load multiple WSDOT CSV files and return a concatenated DataFrame plus file info."""
+    dfs = []
+    file_info = []
+    for f in file_list:
+        if os.path.exists(f):
+            df = safe_read_csv(f)
+            dfs.append(df)
+            file_info.append({"filename": f, "rows": len(df)})
+            print(f"Loaded {f}: {len(df):,} records")
+        else:
+            print(f"File not found: {f} (skipping)")
+    if not dfs:
+        raise FileNotFoundError("No WSDOT CSV files were found or loaded.")
+    combined = pd.concat(dfs, ignore_index=True)
+    print(f"Combined WSDOT crash files -> {len(combined):,} total records")
+    return combined, file_info
+
+
+def load_weather_file(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Weather file '{path}' not found.")
+    df = safe_read_csv(path)
+    print(f"Loaded {path}: {len(df):,} records")
+    return df
+
+
+## Cleaning functions ##
+
+def clean_crash_dataframe(crashes_df: pd.DataFrame) -> pd.DataFrame:
+    """Perform initial cleaning of crash DataFrame (drop obvious dups, trim strings)."""
+    # Keep a copy for reporting
+    working = crashes_df.copy()
+    working_columns_before = set(working.columns)
+
+    # Trim whitespace for string columns (to aid matching)
+    obj_cols = working.select_dtypes(include=["object"]).columns
+    for c in obj_cols:
+        working[c] = working[c].astype(str).str.strip()
+
+    # Remove exact duplicate rows (full duplicates)
+    before = len(working)
+    working = working.drop_duplicates(keep="first")
+    removed = before - len(working)
+    if removed > 0:
+        print(f"Dropped {removed:,} full-row duplicates")
+
+    return working
+
+
+def remove_report_number_duplicates(df: pd.DataFrame, report_col: str = "Report Number") -> pd.DataFrame:
+    """Drop duplicates based on report number if that column exists."""
+    if report_col in df.columns:
+        before = len(df)
+        dup_count = df.duplicated(subset=[report_col]).sum()
+        print(f"Found {dup_count:,} duplicate Report Number entries")
+        if dup_count > 0:
+            df = df.drop_duplicates(subset=[report_col], keep="first")
+            print(f"  Removed duplicates -> {len(df):,} records remain")
+    else:
+        print("'Report Number' not found; skipping report-number dedupe")
+    return df
+
+
+def parse_and_engineer_datetime(df: pd.DataFrame) -> pd.DataFrame:
+    """Detect/parse datetime and create temporal features."""
+
+    # Detect datetime column (may modify df in-place if it has separate columns)
+    datetime_col, created_col = detect_datetime_column(df)
+    if datetime_col is None:
+        # As a last attempt, look for columns with 'date' or 'time' tokens and try to join them
+        raise ValueError("Could not locate combined or separate date/time columns. Please inspect columns: " + ", ".join(df.columns))
+
+    print(f"Using datetime column: '{datetime_col}' (created={bool(created_col)})")
+    df["crash_datetime"] = pd.to_datetime(df[datetime_col], errors="coerce", infer_datetime_format=True)
+
+    # Extract features
+    df["crash_date"] = df["crash_datetime"].dt.date
+    df["year"] = df["crash_datetime"].dt.year
+    df["month"] = df["crash_datetime"].dt.month
+    df["day"] = df["crash_datetime"].dt.day
+    df["hour"] = df["crash_datetime"].dt.hour
+    df["day_of_week"] = df["crash_datetime"].dt.dayofweek
+    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype(int)
+    df["day_name"] = df["crash_datetime"].dt.day_name()
+    df["time_of_day"] = df["hour"].apply(categorize_time_of_day)
+
+    parsed_count = df["crash_datetime"].notna().sum()
+    print(f"Parsed datetime for {parsed_count:,} records")
+    return df
+
+
+def filter_to_city(df: pd.DataFrame, city_col: str = "City", city_name: str = "TACOMA") -> pd.DataFrame:
+    """Filter DataFrame to a specific city (case-insensitive)."""
+    if city_col not in df.columns:
+        print(f"Warning: '{city_col}' column not found; skipping city filter")
+        return df
+    before = len(df)
+    df = df[df[city_col].astype(str).str.strip().str.upper() == city_name.upper()].copy()
+    print(f"Filtered to {city_name}: {before:,} -> {len(df):,} records")
+    return df
+
+
+def clean_weather_dataframe(weather_df: pd.DataFrame) -> pd.DataFrame:
+    """Clean NOAA weather dataframe and engineer daily features. Expects a DATE column."""
+    df = weather_df.copy()
+    date_col_candidates = [c for c in df.columns if c.lower() == "date" or c.lower() == "date" or c.lower() == "date"]
+    # Prefer 'DATE' if present (NOAA typical)
+    if "DATE" in df.columns:
+        df["weather_date"] = pd.to_datetime(df["DATE"], errors="coerce", infer_datetime_format=True)
+    else:
+        # try any column containing 'date'
+        date_cols = [c for c in df.columns if "date" in c.lower()]
+        if date_cols:
+            df["weather_date"] = pd.to_datetime(df[date_cols[0]], errors="coerce", infer_datetime_format=True)
+        else:
+            raise ValueError("No suitable date column found in weather data (expected 'DATE' or similar)")
+
+    df["date"] = df["weather_date"].dt.date
+    print(f"Parsed weather dates for {df['weather_date'].notna().sum():,} records")
+
+    # Remove duplicate date rows (keep first)
+    before = len(df)
+    df = df.drop_duplicates(subset=["date"], keep="first")
+    if before - len(df) > 0:
+        print(f"Removed {before - len(df):,} duplicate weather dates")
+
+    # Fill/prepare columns safely
+    # PRCP, SNOW, SNWD, TMAX, TMIN may or may not exist
+    for col in ["PRCP", "SNOW", "SNWD", "TMAX", "TMIN"]:
+        if col in df.columns:
+            # convert to numeric
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Fill missing precip/snow with 0
+    for col in ["PRCP", "SNOW", "SNWD"]:
+        if col in df.columns:
+            df[col].fillna(0, inplace=True)
+    # For temperature columns, forward/backfill
+    for col in ["TMAX", "TMIN"]:
+        if col in df.columns:
+            df[col].fillna(method="ffill", inplace=True)
+            df[col].fillna(method="bfill", inplace=True)
+    # Compute TAVG if possible
+    if "TMAX" in df.columns and "TMIN" in df.columns:
+        df["TAVG"] = (df["TMAX"] + df["TMIN"]) / 2
+    elif "TAVG" in df.columns:
+        df["TAVG"] = pd.to_numeric(df["TAVG"], errors="coerce")
+
+    # Ensure WT columns exist list (include WT18 specifically)
+    wt_columns = [c for c in df.columns if c.startswith("WT")]
+    for col in wt_columns:
+        df[col] = df[col].fillna(0)
+
+    # Derived flags
+    df["has_precipitation"] = (df["PRCP"] > 0).astype(int) if "PRCP" in df.columns else 0
+    df["has_snow"] = (df["SNOW"] > 0).astype(int) if "SNOW" in df.columns else 0
+    df["is_freezing"] = (df["TMIN"] <= 32).astype(int) if "TMIN" in df.columns else 0
+
+    # Weather category using priority: WT18 (snow), WT04 (sleet), WT01 (fog), SNOW, PRCP
+    def categorize_weather(row):
+        if row.get("WT18", 0) == 1:
+            return "snow"
+        if row.get("WT04", 0) == 1:
+            return "sleet"
+        if row.get("WT01", 0) == 1:
+            return "fog"
+        if row.get("has_snow", 0) == 1:
+            return "snow"
+        if row.get("has_precipitation", 0) == 1:
+            return "rain"
+        return "clear"
+
+    df["weather_category"] = df.apply(categorize_weather, axis=1)
+
+    # Select final weather columns (safe picking)
+    weather_columns = ["date", "PRCP", "SNOW", "SNWD", "TMAX", "TMIN", "TAVG",
+                       "has_precipitation", "has_snow", "is_freezing", "weather_category"]
+    # add WT columns
+    weather_columns += [c for c in wt_columns if c not in weather_columns]
+    weather_columns_final = [c for c in weather_columns if c in df.columns]
+
+    weather_clean = df[weather_columns_final].copy()
+    print(f"Weather cleaned: {len(weather_clean):,} daily records")
+    return weather_clean
+
+
+def clean_crash_categoricals(df: pd.DataFrame) -> pd.DataFrame:
+    """Standardize crash categorical fields and create flags (lighting, roadway, contributing, sobriety)."""
+
+    out = df.copy()
+
+    def clean_text(series):
+        series = series.fillna("").astype(str).str.strip().str.lower()
+        # Convert empty string back to NaN for consistency
+        series = series.replace({"": np.nan, "nan": np.nan})
+        return series
+
+    # Lighting
+    if "Weather Lighting" in out.columns:
+        out["lighting_clean"] = clean_text(out["Weather Lighting"])
+
+        def standardize_lighting(light):
+            if pd.isna(light):
+                return "unknown"
+            if any(k in light for k in ("daylight", "dawn", "dusk")):
+                return "daylight"
+            if "dark" in light and ("street" in light or "light" in light) and ("on" in light or "lit" in light):
+                return "dark_lit"
+            if "dark" in light and ("off" in light or "no street" in light or "no light" in light):
+                return "dark_unlit"
+            if "dark" in light:
+                return "dark_unknown"
+            return "unknown"
+
+        out["lighting"] = out["lighting_clean"].apply(standardize_lighting)
+        print(f"Lighting categories computed ({out['lighting'].nunique():,} unique)")
+
+    # Roadway: extract type and surface
+    if "Roadway" in out.columns:
+        out["roadway_clean"] = clean_text(out["Roadway"])
+
+        def extract_road_type(roadway):
+            if pd.isna(roadway):
+                return "unknown"
+            if "two way" in roadway and "divided" in roadway:
+                return "divided_highway"
+            if "two way" in roadway and "undivided" in roadway:
+                return "undivided"
+            if "one way" in roadway:
+                return "one_way"
+            return "other"
+
+        def extract_road_surface(roadway):
+            if pd.isna(roadway):
+                return "unknown"
+            if "dry" in roadway:
+                return "dry"
+            if "wet" in roadway:
+                return "wet"
+            if any(x in roadway for x in ("snow", "ice", "icy")):
+                return "snow_ice"
+            return "unknown"
+
+        out["road_type"] = out["roadway_clean"].apply(extract_road_type)
+        out["road_surface"] = out["roadway_clean"].apply(extract_road_surface)
+        print(f"Roadway categories computed")
+
+    # Injury Severity
+    if "Injury Severity" in out.columns:
+        out["injury_severity"] = clean_text(out["Injury Severity"]).fillna("unknown")
+
+    # Contributing Circumstances -> binary flags
+    if "Contributing Circumstances" in out.columns:
+        out["contributing"] = clean_text(out["Contributing Circumstances"])
+        out["distraction_involved"] = out["contributing"].str.contains("distraction", na=False).astype(int)
+        out["speed_involved"] = out["contributing"].str.contains("speed", na=False).astype(int)
+        out["influence_involved"] = out["contributing"].str.contains("influence|alcohol|dui", na=False).astype(int)
+
+    # Sobriety -> alcohol flag
+    if "Sobriety" in out.columns:
+        out["sobriety_clean"] = clean_text(out["Sobriety"])
+        out["alcohol_related"] = out["sobriety_clean"].isin(["yes", "had been drinking"]).astype(int)
+
+    return out
+
+
+## Merge, fill missing, finalize features ##
+
+def merge_crash_weather(crashes: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+    crashes = crashes.copy()
+    weather = weather.copy()
+
+    crashes["merge_date"] = crashes["crash_date"]
+    weather["merge_date"] = weather["date"]
+
+    before = len(crashes)
+    merged = crashes.merge(weather, on="merge_date", how="left", suffixes=("", "_w"))
+    print(f"Merged crash & weather -> {len(merged):,} records (crashes before merge: {before:,})")
+
+    unmatched = merged["PRCP"].isna().sum() if "PRCP" in merged.columns else merged["TAVG"].isna().sum()
+    if unmatched > 0:
+        print(f"{unmatched:,} crash records did not match a weather day (left join)")
+
+    # Fill weather-derived missing values with reasonable defaults
+    if "PRCP" in merged.columns:
+        merged["PRCP"].fillna(0, inplace=True)
+    if "SNOW" in merged.columns:
+        merged["SNOW"].fillna(0, inplace=True)
+    if "SNWD" in merged.columns:
+        merged["SNWD"].fillna(0, inplace=True)
+    if "has_precipitation" in merged.columns:
+        merged["has_precipitation"].fillna(0, inplace=True)
+    if "has_snow" in merged.columns:
+        merged["has_snow"].fillna(0, inplace=True)
+    if "is_freezing" in merged.columns:
+        merged["is_freezing"].fillna(0, inplace=True)
+    if "weather_category" in merged.columns:
+        merged["weather_category"].fillna("unknown", inplace=True)
+
+    # Temperature fill: TAVG preferred
+    if "TAVG" in merged.columns:
+        t_median = merged["TAVG"].median()
+        merged["TAVG"].fillna(t_median, inplace=True)
+        # also ensure TMAX/TMIN
+        if "TMAX" in merged.columns:
+            merged["TMAX"].fillna(merged["TAVG"], inplace=True)
+        if "TMIN" in merged.columns:
+            merged["TMIN"].fillna(merged["TAVG"], inplace=True)
+    return merged
+
+
+def select_final_features(merged_df: pd.DataFrame) -> pd.DataFrame:
+    """Select and order final features for modeling; keep only available columns."""
+    candidates = [
+        "Report Number",
+        "crash_datetime",
+        "merge_date",
+        "year", "month", "day", "hour", "day_of_week", "day_name", "is_weekend", "time_of_day",
+        "lighting", "road_type", "road_surface", "injury_severity",
+        "distraction_involved", "speed_involved", "influence_involved", "alcohol_related",
+        "PRCP", "SNOW", "SNWD", "TMAX", "TMIN", "TAVG", "has_precipitation", "has_snow", "is_freezing", "weather_category",
+        "crash_occurred"
+    ]
+
+    # Append WT columns found in merged_df
+    wt_cols = [c for c in merged_df.columns if c.startswith("WT")]
+    candidates.extend(wt_cols)
+
+    final = [c for c in candidates if c in merged_df.columns]
+    return merged_df[final].copy()
+
+
+## Output ##
+
+def save_csv(cleaned_final: pd.DataFrame, file_prefix: str = "cleaned_tacoma_crashes_with_weather"):
+    # CSV
+    csv_name = f"{file_prefix}.csv"
+    cleaned_final.to_csv(csv_name, index=False)
+    print(f"Saved cleaned CSV -> {csv_name}")
+
+
+## Main pipeline ##
+
+def step1_main():
+    # Input file lists (edit as needed)
+    wsdot_files = [
+        "crashes_25.csv",
+        "crashes_24.csv",
+        "crashes_23.csv",
+        "crashes_22.csv",
+        "crashes_21.csv",
+    ]
+    weather_file = "weather.csv"
+
+    # Load crash data
+    crashes_raw, crash_file_info = load_wsdot_files(wsdot_files)
+    original_crash_count = len(crashes_raw)  # store original count for the report
+
+    # Clean initial crash DF
+    crashes = clean_crash_dataframe(crashes_raw)
+
+    # Remove duplicates by Report Number (if present)
+    crashes = remove_report_number_duplicates(crashes, report_col="Report Number")
+    after_dedupe_count = len(crashes)
+
+    # Filter to Tacoma
+    crashes = filter_to_city(crashes, city_col="City", city_name="TACOMA")
+
+    # Parse datetime & create temporal features
+    crashes = parse_and_engineer_datetime(crashes)
+
+    # Drop rows with missing crash_datetime (if many, consider imputing or investigating)
+    crashes = crashes.dropna(subset=["crash_datetime"])
+
+    # Load and clean weather
+    weather_raw = load_weather_file(weather_file)
+    weather_clean = clean_weather_dataframe(weather_raw)
+
+    # Clean crash categorical fields
+    crashes = clean_crash_categoricals(crashes)
+
+    # Merge crash and weather on date
+    merged_df = merge_crash_weather(crashes, weather_clean)
+
+    # Create target variable (crash_occurred = 1 for all rows)
+    merged_df["crash_occurred"] = 1
+
+    # Select final features
+    cleaned_final = select_final_features(merged_df)
+
+    # Save outputs
+    save_csv(cleaned_final)
+
+
+step1_main()
