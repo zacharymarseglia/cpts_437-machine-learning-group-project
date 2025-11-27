@@ -7,8 +7,9 @@ Author: Kendall Reid
 
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import models as md
 
 
@@ -44,6 +45,45 @@ X_lr = np.hstack([np.ones((X.shape[0], 1)), X.values])  # Add bias term for logi
 
 
 # Train/test split
-X_train_lr, X_test_lr, y_train_lr, y_test_lr = train_test_split(X, y, test_sixe = 0.2, random_state = 43, stratify = y)
+X_train_lr, X_test_lr, y_train, y_test = train_test_split(X_lr, y, test_size = 0.2, random_state = 43, stratify = y)
 X_train_tree, X_test_tree = train_test_split(X, test_size = 0.3, random_state = 43, stratify = y)
 
+
+# Train log reg
+lr_model = md.LogReg(lr = 0.1, epochs = 1000)
+lr_model.fit(X_train_lr, y_train)
+y_pred_lr_prob = lr_model.predict_prob(X_test_lr)
+
+
+# Train decision tree
+tree_model = md.DecisionTree(max_depth = 5)
+tree_model.fit(X_train_tree.values, y_train)
+y_pred_tree_prob = tree_model.predict_prob_tree(X_test_tree.values)
+
+
+# Ensemble
+y_pred_ensemble_prob = (y_pred_lr_prob + y_pred_tree_prob) / 2
+y_pred_ensemble_class = (y_pred_ensemble_prob >= 0.5).astype(int)
+
+
+# Print metrics
+print("Ensemble Metrics:")
+print("Accuracy:", accuracy_score(y_test, y_pred_ensemble_class))
+print("Precision:", precision_score(y_test, y_pred_ensemble_class))
+print("Recall:", recall_score(y_test, y_pred_ensemble_class))
+print("F1 Score:", f1_score(y_test, y_pred_ensemble_class))
+
+
+# Risk scores
+X_pos_lr = np.hstack([np.ones((x_pos.shape[0], 1)), x_pos.values])
+risk_lr = lr_model.predict_prob(X_pos_lr)
+risk_tree = tree_model.predict_prob_tree(x_pos.values)
+risk_ensemble = (risk_lr + risk_tree) / 2
+
+data['risk_score'] = risk_ensemble
+
+def compute_risk_score(input_df):
+    X_input_lr = np.hstack([np.ones((len(input_df), 1)), pd.get_dummies(input_df).values])
+    risk_lr = lr_model.predict_prob(X_input_lr)
+    risk_tree = tree_model.predict_prob_tree(pd.get_dummies(input_df).values)
+    return (risk_lr + risk_tree) / 2
