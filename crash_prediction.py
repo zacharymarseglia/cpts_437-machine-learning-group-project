@@ -84,6 +84,10 @@ def compute_risk_score(input_df: pd.DataFrame) -> np.ndarray:
 # Risk scoring to original data
 data['risk_score'] = compute_risk_score(data[feature_cols])
 
+# Save data with risk scores for visualization
+data.to_csv("cleaned_tacoma_crashes_with_weather.csv", index=False)
+print("\n✓ Saved risk scores to cleaned_tacoma_crashes_with_weather.csv")
+
 # Testing purposes
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -102,7 +106,7 @@ if __name__ == "__main__":
     plt.ylabel("Frequency")
     plt.show()
 
-    # Example new inputs
+    # Example inputs
     sample_conditions = pd.DataFrame([
         {'hour': 8, 'day_of_week': 5, 'is_weekend': 0, 'month': 1, 'time_of_day': 1,
          'road_type': 'divided_highway', 'road_surface': 'dry',
