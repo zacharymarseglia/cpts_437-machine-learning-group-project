@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 from sklearn.preprocessing import StandardScaler
 from models import LogReg, DecisionTree
+np.random.seed(42)
 
 # Load data
 data = pd.read_csv("cleaned_tacoma_crashes_with_weather.csv")
