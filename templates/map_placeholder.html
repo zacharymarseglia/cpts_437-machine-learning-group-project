@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Generation In Progress - Tacoma Crash Risk</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">🚗 Tacoma Crash Risk</div>
+            <div class="nav-links">
+                <a href="{{ url_for('index') }}" class="nav-link">Home</a>
+                <a href="{{ url_for('map_page') }}" class="nav-link active">Map</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="placeholder-container">
+            <div class="placeholder-message">
+                <div class="placeholder-icon">🗺️</div>
+                <h2>Map Generation In Progress</h2>
+                <p>
+                    The interactive crash risk map is currently being generated. 
+                    This process involves running machine learning models on historical crash data 
+                    to create predictive visualizations.
+                </p>
+                <p>
+                    Please check back shortly, or contact the development team if this message 
+                    persists for an extended period.
+                </p>
+                <a href="{{ url_for('index') }}" class="cta-button">Return to Home</a>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .placeholder-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 70vh;
+            text-align: center;
+            padding: var(--spacing-xl);
+        }
+        .placeholder-message {
+            max-width: 500px;
+            background: var(--surface);
+            padding: var(--spacing-xl);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-md);
+            animation: fadeInUp 0.6s ease-out;
+        }
+        .placeholder-icon {
+            font-size: 64px;
+            margin-bottom: var(--spacing-md);
+        }
+        .placeholder-message h2 {
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-md);
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .placeholder-message p {
+            color: var(--text-tertiary);
+            line-height: 1.6;
+            margin-bottom: var(--spacing-sm);
+            font-size: 15px;
+        }
+    </style>
+</body>
+</html>
+
