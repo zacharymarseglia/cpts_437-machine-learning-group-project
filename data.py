@@ -502,5 +502,6 @@ def step1_main():
 if __name__ == "__main__":
     step1_main()
 
-from google.colab import drive
-drive.mount('/content/drive')
+# Note: Google Colab imports removed for production deployment
+# from google.colab import drive
+# drive.mount('/content/drive')

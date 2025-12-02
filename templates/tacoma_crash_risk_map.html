@@ -185,6 +185,71 @@
         monthSelect.addEventListener('change', updateHeatmap);
     });
 </script>
+
+<script>
+    // Handle postMessage communication with parent window
+    var riskMarker = null; // Store current marker
+    
+    // Send corridor data to parent when requested
+    window.addEventListener('message', function(event) {
+        if (event.data.type === 'requestCorridorData') {
+            if (typeof corridorData !== 'undefined' && corridorData.length > 0) {
+                window.parent.postMessage({
+                    type: 'corridorData',
+                    data: corridorData
+                }, '*');
+            }
+        }
+        
+        // Handle marker addition request
+        if (event.data.type === 'addRiskMarker') {
+            var markerData = event.data.data;
+            
+            // Find map object
+            var map = null;
+            for (var key in window) {
+                if (window[key] instanceof L.Map) {
+                    map = window[key];
+                    break;
+                }
+            }
+            
+            if (map) {
+                // Remove previous marker
+                if (riskMarker) {
+                    map.removeLayer(riskMarker);
+                }
+                
+                // Add new marker
+                riskMarker = L.marker([markerData.lat, markerData.lon], {
+                    icon: L.divIcon({
+                        className: 'custom-risk-marker',
+                        html: '<div style="background: ' + markerData.riskColor + '; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    })
+                }).addTo(map);
+                
+                // Add popup
+                riskMarker.bindPopup(
+                    '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-width: 200px;">' +
+                    '<h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600;">' + markerData.name + '</h3>' +
+                    '<div style="margin-bottom: 4px;"><strong>Risk Score:</strong> <span style="color: ' + markerData.riskColor + '; font-weight: 700; font-size: 20px;">' + markerData.riskScore.toFixed(3) + '</span></div>' +
+                    '<div style="margin-bottom: 4px; color: ' + markerData.riskColor + '; font-weight: 500;">' + markerData.riskLevel + '</div>' +
+                    '<div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 12px; color: #666;">' +
+                    'Conditions: ' + markerData.weatherCategory + ', ' + markerData.temp + '°F' +
+                    '</div>' +
+                    '</div>'
+                ).openPopup();
+                
+                // Pan to marker
+                map.setView([markerData.lat, markerData.lon], Math.max(map.getZoom(), 14));
+            }
+        }
+    });
+</script>
+    
+            <div class="folium-map" id="map_63bea35b400be32413666ae2dd74fdd4" ></div>
     
             <div class="folium-map" id="map_63bea35b400be32413666ae2dd74fdd4" ></div>
         

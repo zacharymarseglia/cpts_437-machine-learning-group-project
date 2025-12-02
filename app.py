@@ -4,8 +4,9 @@ Serves the landing page and interactive crash risk map visualization.
 Author: Zuriel H
 """
 
-from flask import Flask, render_template, url_for
+from flask import Flask, render_template, url_for, request, jsonify
 import os
+import pandas as pd
 
 app = Flask(__name__)
 
@@ -44,6 +45,62 @@ def map_page():
         return render_template(MAP_FILE)
     else:
         return render_template('map_placeholder.html'), 503
+
+
+@app.route('/api/calculate-risk', methods=['POST'])
+def calculate_risk():
+    """
+    Calculate risk score for given conditions.
+    Uses Kendall's compute_risk_score function.
+    
+    Expected JSON:
+    {
+        "hour": 18,
+        "day_of_week": 5,
+        "is_weekend": 0,
+        "month": 12,
+        "time_of_day": 3,
+        "road_type": "residential",
+        "road_surface": "wet",
+        "PRCP": 0.5,
+        "SNOW": 0,
+        "TAVG": 32,
+        "weather_category": "rain",
+        "alcohol_related": 0,
+        "is_freezing": 1
+    }
+    
+    Returns:
+        JSON with risk score and status
+    """
+    try:
+        from model_loader import compute_risk_score
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Convert to DataFrame
+        input_df = pd.DataFrame([data])
+        
+        # Calculate risk score
+        risk_score = compute_risk_score(input_df)
+        
+        if risk_score is None:
+            return jsonify({
+                'error': 'Models not loaded. Please run crash_prediction.py first to train and save models.'
+            }), 503
+        
+        return jsonify({
+            'risk_score': risk_score,
+            'status': 'success'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'status': 'error'
+        }), 500
 
 
 @app.errorhandler(404)
