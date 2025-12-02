@@ -264,8 +264,8 @@ control_html = """
 """
 map_tacoma.get_root().html.add_child(folium.Element(control_html))
 
-# Save map
-output_file = 'static/tacoma_crash_risk_map.html'
+# Save map to templates folder for Flask
+output_file = 'templates/tacoma_crash_risk_map.html'
 map_tacoma.save(output_file)
 print(f"\n✓ Map saved to: {output_file}")
 print("✓ Map shows actual Tacoma corridors with geocoded coordinates")

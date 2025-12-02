@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tacoma Traffic Crash Risk Visualization</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">🚗 Tacoma Crash Risk</div>
+            <div class="nav-links">
+                <a href="{{ url_for('index') }}" class="nav-link active">Home</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="hero-section">
+            <h1>Tacoma Traffic Crash Risk Visualization</h1>
+            <p class="subtitle">Predicting and Visualizing Traffic Crash Likelihood in Tacoma, WA</p>
+            <p class="description">
+                This interactive map shows predicted crash risk across Tacoma using machine learning models trained on
+                historical crash, weather, and road data from 2021-2025.
+            </p>
+        </header>
+
+        <div class="map-container">
+            <div class="legend">
+                <h3>Heatmap Legend</h3>
+                <div class="legend-item">
+                    <span class="color-box"
+                        style="background: linear-gradient(to right, blue, cyan, lime, yellow, orange, red);"></span>
+                    <span>Low Risk → High Risk</span>
+                </div>
+                <h4>Controls</h4>
+                <ul>
+                    <li>Zoom in/out to explore</li>
+                    <li>Toggle layers (top right)</li>
+                    <li>Click markers for details</li>
+                </ul>
+                
+                <!-- Risk Calculator -->
+                <div id="risk-calculator" style="margin-top: 32px; padding-top: 32px; border-top: 1px solid rgba(0, 0, 0, 0.1);">
+                    <h3 style="margin: 0 0 12px 0; color: #000; font-size: 16px; font-weight: 600; letter-spacing: -0.3px;">Calculate Risk</h3>
+                    
+                    <form id="riskForm" style="margin-bottom: 12px;">
+                        <!-- Row 1: Street  -->
+                        <div style="margin-bottom: 10px;">
+                            <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Street</label>
+                            <select id="streetSelect" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                <option value="">Select a street...</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Row 2: Time fields  -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Hour</label>
+                                <input type="number" id="hourInput" min="0" max="23" value="12" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Day</label>
+                                <select id="dayInput" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                    <option value="0">Mon</option>
+                                    <option value="1">Tue</option>
+                                    <option value="2">Wed</option>
+                                    <option value="3">Thu</option>
+                                    <option value="4">Fri</option>
+                                    <option value="5">Sat</option>
+                                    <option value="6">Sun</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Month</label>
+                                <select id="monthInput" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                    <option value="1">Jan</option>
+                                    <option value="2">Feb</option>
+                                    <option value="3">Mar</option>
+                                    <option value="4">Apr</option>
+                                    <option value="5">May</option>
+                                    <option value="6">Jun</option>
+                                    <option value="7">Jul</option>
+                                    <option value="8">Aug</option>
+                                    <option value="9">Sep</option>
+                                    <option value="10">Oct</option>
+                                    <option value="11">Nov</option>
+                                    <option value="12">Dec</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Road Type</label>
+                                <select id="roadTypeInput" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                    <option value="divided_highway">Highway</option>
+                                    <option value="undivided">Undivided</option>
+                                    <option value="one_way">One Way</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Surface</label>
+                                <select id="roadSurfaceInput" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                    <option value="dry">Dry</option>
+                                    <option value="wet">Wet</option>
+                                    <option value="snow_ice">Snow/Ice</option>
+                                    <option value="unknown">Unknown</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Weather</label>
+                                <select id="weatherInput" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                                    <option value="clear">Clear</option>
+                                    <option value="rain">Rain</option>
+                                    <option value="snow">Snow</option>
+                                    <option value="fog">Fog</option>
+                                    <option value="sleet">Sleet</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Temp (°F)</label>
+                                <input type="number" id="tempInput" value="50" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit;">
+                            </div>
+                        </div>
+                        
+                        <!-- Row 5: Precipitation and Snow (2 columns, smaller) -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Precip (in)</label>
+                                <input type="number" id="precipInput" min="0" step="0.1" value="0" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size: 11px; margin-bottom: 4px; color: #6E6E73; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px;">Snow (in)</label>
+                                <input type="number" id="snowInput" min="0" step="0.1" value="0" required style="width: 100%; padding: 8px 10px; border: 0.5px solid #C6C6C8; border-radius: 8px; background: #FFFFFF; color: #000; font-size: 13px; font-weight: 500; font-family: inherit;">
+                            </div>
+                        </div>
+                        
+                        <button type="submit" style="width: 100%; padding: 10px; background: #007AFF; color: #FFFFFF; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);">Calculate Risk</button>
+                    </form>
+                    
+                    <div id="riskResult" style="display: none; padding-top: 12px; border-top: 0.5px solid rgba(0, 0, 0, 0.1);">
+                        <div style="font-size: 12px; color: #6E6E73; margin-bottom: 4px;">Risk Score</div>
+                        <div id="riskScoreDisplay" style="font-size: 24px; font-weight: 700; color: #000; margin-bottom: 4px;">-</div>
+                        <div id="riskLevelDisplay" style="font-size: 13px; font-weight: 500; margin-bottom: 6px;">-</div>
+                        <div style="font-size: 11px; color: #6E6E73;">Location: <span id="riskLocationDisplay" style="color: #000; font-weight: 500;">-</span></div>
+                    </div>
+                </div>
+            </div>
+            <iframe id="mapFrame" src="{{ url_for('map_page') }}" class="map-frame"></iframe>
+        </div>
+    </div>
+
+    <script>
+        // Risk Calculator JavaScript
+        var corridorDataCache = null;
+        var mapFrame = document.getElementById('mapFrame');
+        
+        // Request corridor data from iframe when it loads
+        mapFrame.addEventListener('load', function() {
+            mapFrame.contentWindow.postMessage({type: 'requestCorridorData'}, '*');
+        });
+        
+        // Listen for corridor data from iframe
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'corridorData') {
+                corridorDataCache = event.data.data;
+                populateStreetDropdown();
+            }
+        });
+        
+        function populateStreetDropdown() {
+            var streetSelect = document.getElementById('streetSelect');
+            if (!corridorDataCache || corridorDataCache.length === 0) return;
+            
+            // Get unique street names
+            var uniqueStreets = {};
+            corridorDataCache.forEach(function(corridor) {
+                if (!uniqueStreets[corridor.name]) {
+                    uniqueStreets[corridor.name] = {
+                        name: corridor.name,
+                        lat: corridor.lat,
+                        lon: corridor.lon
+                    };
+                }
+            });
+            
+            // Sort and add to dropdown
+            var sortedStreets = Object.values(uniqueStreets).sort(function(a, b) {
+                return a.name.localeCompare(b.name);
+            });
+            
+            sortedStreets.forEach(function(street) {
+                var option = document.createElement('option');
+                option.value = JSON.stringify({name: street.name, lat: street.lat, lon: street.lon});
+                option.textContent = street.name;
+                streetSelect.appendChild(option);
+            });
+        }
+        
+        // Handle form submission
+        document.addEventListener('DOMContentLoaded', function() {
+            var riskForm = document.getElementById('riskForm');
+            
+            riskForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Get selected street
+                var streetSelect = document.getElementById('streetSelect');
+                var streetOption = streetSelect.options[streetSelect.selectedIndex];
+                if (!streetOption.value) {
+                    alert('Please select a street');
+                    return;
+                }
+                var selectedStreet = JSON.parse(streetOption.value);
+                
+                // Get form values
+                var hour = parseInt(document.getElementById('hourInput').value);
+                var dayOfWeek = parseInt(document.getElementById('dayInput').value);
+                var month = parseInt(document.getElementById('monthInput').value);
+                var roadType = document.getElementById('roadTypeInput').value;
+                var roadSurface = document.getElementById('roadSurfaceInput').value;
+                var weatherCategory = document.getElementById('weatherInput').value;
+                var temp = parseFloat(document.getElementById('tempInput').value);
+                var precip = parseFloat(document.getElementById('precipInput').value);
+                var snow = parseFloat(document.getElementById('snowInput').value);
+                
+                // Auto-set precipitation and snow based on weather category if user didn't specify
+                
+                if (precip === 0 && snow === 0) {
+                    if (weatherCategory === 'rain') {
+                        precip = 0.1; // Default light rain
+                    } else if (weatherCategory === 'snow') {
+                        snow = 0.5; // Default light snow
+                    } else if (weatherCategory === 'sleet') {
+                        precip = 0.1;
+                        snow = 0.2;
+                    }
+                    // 'clear' and 'fog' stay at 0
+                }
+                
+                // Calculate is_weekend and time_of_day
+                var isWeekend = (dayOfWeek === 5 || dayOfWeek === 6) ? 1 : 0;
+                var timeOfDay;
+                if (hour >= 6 && hour < 10) {
+                    timeOfDay = 'morning_rush';
+                } else if (hour >= 10 && hour < 16) {
+                    timeOfDay = 'midday';
+                } else if (hour >= 16 && hour < 20) {
+                    timeOfDay = 'evening_rush';
+                } else if (hour >= 20 && hour < 24) {
+                    timeOfDay = 'night';
+                } else {
+                    timeOfDay = 'late_night';
+                }
+                
+                // Calculate is_freezing
+                var isFreezing = (temp <= 32) ? 1 : 0;
+                
+                // Prepare request data
+                var requestData = {
+                    hour: hour,
+                    day_of_week: dayOfWeek,
+                    is_weekend: isWeekend,
+                    month: month,
+                    time_of_day: timeOfDay,
+                    road_type: roadType,
+                    road_surface: roadSurface,
+                    PRCP: precip,
+                    SNOW: snow,
+                    TAVG: temp,
+                    weather_category: weatherCategory,
+                    alcohol_related: 0,
+                    is_freezing: isFreezing
+                };
+                
+                // Show loading state
+                var submitButton = riskForm.querySelector('button[type="submit"]');
+                var originalText = submitButton.textContent;
+                submitButton.textContent = 'Calculating...';
+                submitButton.disabled = true;
+                
+                // Call Flask API
+                fetch('/api/calculate-risk', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    submitButton.textContent = originalText;
+                    submitButton.disabled = false;
+                    
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    var riskScore = data.risk_score;
+                    
+                    // Display result
+                    var resultDiv = document.getElementById('riskResult');
+                    var scoreDisplay = document.getElementById('riskScoreDisplay');
+                    var levelDisplay = document.getElementById('riskLevelDisplay');
+                    var locationDisplay = document.getElementById('riskLocationDisplay');
+                    
+                    scoreDisplay.textContent = riskScore.toFixed(3);
+                    locationDisplay.textContent = selectedStreet.name;
+                    
+                    // Determine risk level
+                    var riskLevel, riskColor;
+                    if (riskScore >= 0.7) {
+                        riskLevel = 'High Risk';
+                        riskColor = '#FF3B30';
+                    } else if (riskScore >= 0.5) {
+                        riskLevel = 'Medium Risk';
+                        riskColor = '#FF9500';
+                    } else {
+                        riskLevel = 'Low Risk';
+                        riskColor = '#32D74B';
+                    }
+                    
+                    levelDisplay.textContent = riskLevel;
+                    levelDisplay.style.color = riskColor;
+                    scoreDisplay.style.color = riskColor;
+                    
+                    resultDiv.style.display = 'block';
+                    
+                    // Send marker data to iframe
+                    mapFrame.contentWindow.postMessage({
+                        type: 'addRiskMarker',
+                        data: {
+                            lat: selectedStreet.lat,
+                            lon: selectedStreet.lon,
+                            name: selectedStreet.name,
+                            riskScore: riskScore,
+                            riskLevel: riskLevel,
+                            riskColor: riskColor,
+                            weatherCategory: weatherCategory,
+                            temp: temp
+                        }
+                    }, '*');
+                })
+                .catch(function(error) {
+                    submitButton.textContent = originalText;
+                    submitButton.disabled = false;
+                    alert('Error calculating risk: ' + error.message);
+                    console.error('Error:', error);
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
+
+    </div>
+</body>
+
+</html>

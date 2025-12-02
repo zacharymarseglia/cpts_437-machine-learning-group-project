@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 from sklearn.preprocessing import StandardScaler
 from models import LogReg, DecisionTree
+np.random.seed(42)
 
 # Load data
 data = pd.read_csv("cleaned_tacoma_crashes_with_weather.csv")
@@ -87,6 +88,14 @@ data['risk_score'] = compute_risk_score(data[feature_cols])
 # Save data with risk scores for visualization
 data.to_csv("cleaned_tacoma_crashes_with_weather.csv", index=False)
 print("\n✓ Saved risk scores to cleaned_tacoma_crashes_with_weather.csv")
+
+# Save models for Flask app
+try:
+    from model_loader import save_models
+    save_models(lr_model, tree_model, scalers, X_columns)
+    print("✓ Models saved for Flask app")
+except Exception as e:
+    print(f"Note: Could not save models ({e}). Flask app will need models to be trained first.")
 
 # Testing purposes
 if __name__ == "__main__":
